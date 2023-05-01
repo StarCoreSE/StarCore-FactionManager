@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ProtoBuf;
 using Sandbox.Game;
 using Sandbox.ModAPI;
 using SpaceEngineers.Game.ModAPI;
@@ -7,6 +8,7 @@ using VRage.Game;
 using VRage.Game.Components;
 using VRage.Game.ModAPI;
 using VRage.Game.ModAPI.Ingame.Utilities;
+using VRage.Utils;
 using VRageMath;
 
 
@@ -24,6 +26,18 @@ namespace klime.FactionManager
         }
     }
 
+    //copy the above method but rename DelayedFaction to DelayedPlayer
+    public class DelayedPlayer
+    {
+        public IMyPlayer player;
+        public long playerid;
+
+        public DelayedPlayer(long playerid)
+        {
+            this.playerid = playerid;
+        }
+    }
+
 
     [MySessionComponentDescriptor(MyUpdateOrder.AfterSimulation)]
     public class FactionManager : MySessionComponentBase
@@ -32,11 +46,14 @@ namespace klime.FactionManager
         public string factionButtonSubtype = "FactionButton";
         public List<string> reuseSections = new List<string>();
         public List<DelayedFaction> delayedFactions = new List<DelayedFaction>();
+        public List<DelayedPlayer> delayedPlayers = new List<DelayedPlayer>();
         public List<string> specialFactions = new List<string>()
         {
             "SPRT",
             "SPID"
         };
+
+
 
         //Core
         public int masterTimer = 0;
@@ -48,8 +65,83 @@ namespace klime.FactionManager
                 MyVisualScriptLogicProvider.ButtonPressedTerminalName += ButtonPressed;
                 MyAPIGateway.Session.Factions.FactionStateChanged += FactionEvent;
                 MyAPIGateway.Session.Factions.FactionCreated += FactionCreated;
+                MyVisualScriptLogicProvider.PlayerConnected += PlayerConnected;
+                MyAPIGateway.Utilities.MessageEntered += MessageEntered;
             }
         }
+
+        private void PlayerConnected(long playerid)
+        {
+
+            DelayedPlayer player = new DelayedPlayer(playerid);
+            delayedPlayers.Add(player);
+
+
+        }
+
+        private void MessageEntered(string messageText, ref bool sendToOthers)
+        {
+            if (messageText.StartsWith("/rebalance"))
+            {
+                var player = MyAPIGateway.Session.Player;
+                if (player == null || MyPromoteLevel.Admin >= MyAPIGateway.Session.Player.PromoteLevel)
+                {
+                    MyAPIGateway.Utilities.ShowMessage("Error", "You must be an admin to use this command.");
+                    return;
+                }
+
+                Rebalance();
+            }
+        }
+
+
+
+        private void Rebalance()
+        {
+            MyAPIGateway.Utilities.ShowNotification("Rebalancing, dumbass", 2000, MyFontEnum.Green);
+            IMyFaction redfaction = MyAPIGateway.Session.Factions.TryGetFactionByTag("RED");
+            IMyFaction blufaction = MyAPIGateway.Session.Factions.TryGetFactionByTag("BLU");
+
+            if (redfaction != null && blufaction != null)
+            {
+                var redcount = redfaction.Members.Count;
+                var blucount = blufaction.Members.Count;
+
+                if (redcount != blucount)
+                {
+                    var memberIds = new List<long>();
+                    var fromFaction = (redcount > blucount) ? redfaction : blufaction;
+                    var toFaction = (redcount > blucount) ? blufaction : redfaction;
+
+                    foreach (var member in fromFaction.Members)
+                    {
+                        memberIds.Add(member.Key);
+                    }
+
+                    var diff = Math.Abs(redcount - blucount);
+                    var membersToMove = diff / 2;
+
+                    for (var i = 0; i < membersToMove; i++)
+                    {
+                        if (memberIds.Count == 0)
+                        {
+                            // no more members to move
+                            break;
+                        }
+
+                        var memberId = memberIds[MyUtils.GetRandomInt(0, memberIds.Count - 1)];
+                        MyAPIGateway.Session.Factions.SendJoinRequest(toFaction.FactionId, memberId);
+                        MyAPIGateway.Session.Factions.AcceptJoin(toFaction.FactionId, memberId);
+                        memberIds.Remove(memberId);
+                    }
+                }
+                else
+                {
+                    // equal count, do nothing
+                }
+            }
+        }
+
 
         public override void UpdateAfterSimulation()
         {
@@ -81,10 +173,51 @@ namespace klime.FactionManager
                         delayedFactions.RemoveAt(i);
                     }
                 }
+
+                for (int i = delayedPlayers.Count - 1; i >= 0; i--)
+                {
+                    var name = MyVisualScriptLogicProvider.GetPlayersName(delayedPlayers[i].playerid);
+                    if (name != "")
+                    {
+                        IMyFaction redfaction = MyAPIGateway.Session.Factions.TryGetFactionByTag("RED");
+                        IMyFaction blufaction = MyAPIGateway.Session.Factions.TryGetFactionByTag("BLU");
+                        if (redfaction != null && blufaction != null)
+                        {
+                            var redcount = redfaction.Members.Count;
+                            var blucount = blufaction.Members.Count;
+                            if (redcount > blucount)
+                            {
+                                //Add them to new faction
+                                MyAPIGateway.Session.Factions.SendJoinRequest(blufaction.FactionId, delayedPlayers[i].playerid);
+                                MyAPIGateway.Session.Factions.AcceptJoin(blufaction.FactionId, delayedPlayers[i].playerid);
+                            }
+                            else if (blucount > redcount)
+                            {
+                                //Add them to new faction
+                                MyAPIGateway.Session.Factions.SendJoinRequest(redfaction.FactionId, delayedPlayers[i].playerid);
+                                MyAPIGateway.Session.Factions.AcceptJoin(redfaction.FactionId, delayedPlayers[i].playerid);
+                            }
+                            else //oh god oh fuck it failed put them on red
+                            {
+                                MyAPIGateway.Session.Factions.SendJoinRequest(redfaction.FactionId, delayedPlayers[i].playerid);
+                                MyAPIGateway.Session.Factions.AcceptJoin(redfaction.FactionId, delayedPlayers[i].playerid);
+                            }
+
+                            delayedPlayers.RemoveAt(i); //this player has been processed send them to the bin
+
+                        }
+                    }
+                }
+
+
             }
 
             masterTimer += 1;
         }
+
+
+
+
 
         private void FactionCreated(long factionId)
         {
@@ -103,7 +236,7 @@ namespace klime.FactionManager
             if (buttonPanel != null && buttonPanel.BlockDefinition.SubtypeName == factionButtonSubtype)
             {
                 reuseSections.Clear();
-                MyIni ini = new MyIni();;
+                MyIni ini = new MyIni(); ;
                 string tag = "";
 
                 if (ini.TryParse(buttonPanel.CustomData))
@@ -227,6 +360,8 @@ namespace klime.FactionManager
                 MyVisualScriptLogicProvider.ButtonPressedTerminalName -= ButtonPressed;
                 MyAPIGateway.Session.Factions.FactionStateChanged -= FactionEvent;
                 MyAPIGateway.Session.Factions.FactionCreated -= FactionCreated;
+                MyVisualScriptLogicProvider.PlayerConnected -= PlayerConnected;
+                MyAPIGateway.Utilities.MessageEntered -= MessageEntered;
             }
         }
     }
