@@ -83,12 +83,7 @@ namespace klime.FactionManager
         {
             if (messageText.StartsWith("/rebalance"))
             {
-                var player = MyAPIGateway.Session.Player;
-                if (player == null || MyPromoteLevel.Admin >= MyAPIGateway.Session.Player.PromoteLevel)
-                {
-                    MyAPIGateway.Utilities.ShowMessage("Error", "You must be an admin to use this command.");
-                    return;
-                }
+
 
                 Rebalance();
             }
