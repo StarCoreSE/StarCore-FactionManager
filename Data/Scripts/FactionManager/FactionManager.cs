@@ -115,7 +115,10 @@ namespace klime.FactionManager
 
                     foreach (var member in fromFaction.Members)
                     {
-                        memberIds.Add(member.Key);
+                        if (!member.Value.IsFounder)
+                        {
+                            memberIds.Add(member.Key);
+                        }
                     }
 
                     var diff = Math.Abs(redcount - blucount);
