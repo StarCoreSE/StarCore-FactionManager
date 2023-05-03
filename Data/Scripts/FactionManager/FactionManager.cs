@@ -83,6 +83,7 @@ namespace klime.FactionManager
         {
             if (messageText.StartsWith("/rebalance"))
             {
+                sendToOthers = true;
                 var player = MyAPIGateway.Session.Player;
                 if (player == null || MyPromoteLevel.Admin >= MyAPIGateway.Session.Player.PromoteLevel)
                 {
