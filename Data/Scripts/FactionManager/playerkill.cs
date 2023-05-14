@@ -32,7 +32,8 @@ namespace klime.SeatClear
             IMyPlayer player = allPlayers.Find(x => x.IdentityId == playerId);
             if (player == null || player.Character == null) return;
 
-            MyVisualScriptLogicProvider.ShowNotificationLocal("You will die if your cockpit is destroyed or you leave it. Be careful!", 5000, "Red");
+            MyVisualScriptLogicProvider.ClearNotifications(playerId);
+            MyVisualScriptLogicProvider.ShowNotification("You will die if your cockpit is destroyed or you leave it. Be careful!", 5000, "Red", playerId);
 
 
 
